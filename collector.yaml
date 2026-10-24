@@ -1,0 +1,115 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel
+  namespace: observability
+spec:
+  mode: deployment
+  replicas: 2
+  serviceAccount: otel-collector
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  ports:
+    - name: oltp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: oltp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+    - name: metrics
+      port: 8888
+      targetPort: 8888
+      protocol: TCP
+    - name: prometheus
+      port: 8889
+      targetPort: 8889
+      protocol: TCP 
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    connectors:
+      spanmetrics:
+        histogram:
+          explicit:
+            buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]
+        dimensions:
+          - name: http.method
+            default: GET 
+          - name: http.status_code
+        dimensions_cache_size: 1000
+        aggregration_temporality: "AGGREGRATION_TEMPORALITY_CUMULATIVE"
+        metrics_flush_interval: 15s
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 75
+        spike_limit_percentage: 15
+      batch:
+        send_batch_size: 1024
+        timeout: 5s
+      resource:
+        attributes:
+          - key: cluster.name
+            value: "CLUSTER_NAME"
+            action: upsert
+          - key: service.namespace
+            value: "grafana"
+            action: insert
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+        path: "/health"
+      bearertokenauth:
+        filename: /var/run/secrets/kubernetes.io/serviceaccount/token
+    exporters:
+      otlp/tempo:
+        # Replace with the actual Tempo gateway service DNS and OTLP/gRPC port.
+        endpoint: tempo-gateway.observability.svc.cluster.local:4317
+        tls:
+          insecure: false
+          # Create ConfigMap tempo-gateway-ca with key ca.crt and mount it below.
+          ca_file: /etc/tempo-ca/ca.crt
+        auth:
+          authenticator: bearertokenauth
+        headers:
+          X-Scope-OrgID: production
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+        resource_to_telemetry_conversion:
+          enabled: true
+      debug:
+        verbosity: basic
+        sampling_initial: 5
+        sampling_thereafter: 200
+    service:
+      extensions: [health_check, bearertokenauth]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, resource, batch]
+          exporters: [otlp/tempo, spanmetrics]
+        metrics:
+          receivers:  [otlp, spanmetrics]
+          processors: [memory_limiter, resource, batch]
+          exporters: [prometheus]
+  volumeMounts:
+    - name: tempo-gateway-ca
+      mountPath: /etc/tempo-ca
+      readOnly: true
+  volumes:
+    - name: tempo-gateway-ca
+      configMap:
+        name: tempo-gateway-ca

@@ -1,0 +1,52 @@
+apiVersion: tempo.grafana.com/v1alpha1
+kind: TempoStack
+metadata:
+  name: tempo
+  namespace: observability
+
+spec:
+  storage:
+    secret:
+      name: tempo-storage
+      type: s3
+
+  storageSize: 10Gi
+
+  retention: 
+    global:
+      traces: 168h0m0s
+
+  replicationFactor: 1
+
+  resources:
+    total:
+      limits:
+        cpu: "4"
+        memory: 8Gi
+
+  tenants:
+    mode: openshift
+    authentication:
+      - tenantName: production
+        tenantId: "11111111-2222-4333-8444-555555555555"
+
+  template:
+    distributor:
+      replicas: 2
+
+    ingester:
+      replicas: 3
+
+    compactor:
+      replicas: 1
+
+    querier:
+      replicas: 2
+
+    queryFrontend:
+      replicas: 2
+      jaegerQuery:
+        enabled: true
+
+    gateway:
+      enabled: true

@@ -1,0 +1,16 @@
+# OPTIONAL example only. Check the installed NooBaa CRD schema first.
+apiVersion: noobaa.io/v1alpha1
+kind: BackingStore
+metadata:
+  name: tempo-backingstore
+  namespace: openshift-storage
+spec:
+  type: pv-pool
+  pvPool:
+    numVolumes: 3
+    resources:
+      requests:
+        storage: 50Gi
+      limits:
+        storage: 50Gi
+    storageClass: odf-backend
